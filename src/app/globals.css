@@ -1,26 +1,59 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  padding: 0;
+  margin: 0;
+  background: #0b1020;
+  color: white;
+  font-family: sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* 自定义下拉框样式 - 统一美化 + 缓动动画 */
+.custom-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%239CA3AF' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+  background-position: right 1rem center;
+  background-repeat: no-repeat;
+  background-size: 1.2rem;
+  transition: all 0.25s ease-in-out;
+  cursor: pointer;
+}
+
+.custom-select:hover {
+  border-color: #10b981; /* 翠绿色，与主题统一 */
+  background-color: #1e293b; /* slate-800 */
+}
+
+.custom-select:focus {
+  outline: none;
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  background-color: #1e293b;
+}
+
+/* 下拉选项的背景（不同浏览器支持程度不同，但可优化） */
+.custom-select option {
+  background-color: #0f172a; /* slate-900 */
+  color: #f1f5f9;
+}
+
+/* 隐藏 number input 的上下箭头（Spinner） */
+input[type="number"] {
+  -moz-appearance: textfield; /* Firefox */
+  appearance: textfield;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+html {
+  scroll-behavior: smooth;
 }
