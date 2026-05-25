@@ -40,8 +40,8 @@ export function calculateRemainingTime(
   currentRemaining: number,
   totalHelperReduce: number
 ): number {
-  let remaining = currentRemaining - totalHelperReduce;
-  return remaining < 0 ? 0 : remaining;
+   const remaining = currentRemaining - totalHelperReduce;
+   return remaining < 0 ? 0 : remaining;
 }
 
 // 商人收益（增加熟练度参数）

@@ -77,8 +77,8 @@ export default function BestRecommend() {
           {results.map((item: any, index: number) => (
             <div
               key={item.id}
-              className="flex items-center justify-between rounded-2xl bg-slate-950 p-4"
-            >
+              className="flex items-center justify-between rounded-2xl bg-slate-950 p-4">
+                {/* ... */}
               <div className="flex items-center gap-4">
                 <div className="text-2xl font-black text-emerald-400">
                   #{index + 1}

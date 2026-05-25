@@ -6,7 +6,7 @@ import WeekendStatus from './WeekendStatus'
 import BestRecommend from './BestRecommend'
 import StrategyPlanner from './StrategyPlanner'
 import CustomSelect from './CustomSelect'
-import { farmRules, FarmRule } from '@/lib/farmRules'
+import { farmRules } from '@/lib/farmRules'
 import {
   calculateExtremeTime,
   calculateHelperReduce,
