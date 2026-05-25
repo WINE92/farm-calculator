@@ -74,7 +74,7 @@ export default function BestRecommend() {
         </div>
 
         <div className="space-y-3">
-          {results.map((item: any, index: number) => (
+          {results.map((item: { id: string; name: string; profitPerHour: number; growMinutes: number }, index: number) => (
             <div
               key={item.id}
               className="flex items-center justify-between rounded-2xl bg-slate-950 p-4">
