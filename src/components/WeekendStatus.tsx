@@ -41,7 +41,7 @@ export default function WeekendStatus() {
       </div>
 
       <div
-        className={`mb-4 text-5xl font-black ${
+        className={`mb-4 text-2xl font-black ${
           enabled
             ? 'text-orange-400'
             : 'text-slate-500'

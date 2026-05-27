@@ -25,7 +25,7 @@ export default function LiveTimer({ remainingMinutes }: { remainingMinutes: numb
   return (
     <div className="rounded-3xl border border-emerald-500/20 bg-slate-900/70 p-8">
       <div className="mb-3 text-slate-400">实时成熟倒计时</div>
-      <div className="mb-6 text-5xl font-black text-emerald-400">
+      <div className="mb-4 text-2xl font-black text-emerald-400">
         {hours}h {minutes}m {seconds}s
       </div>
     </div>
