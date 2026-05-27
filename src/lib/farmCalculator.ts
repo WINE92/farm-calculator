@@ -34,8 +34,6 @@ export function calculateHelperReduce(
 }
 
 // 计算最终剩余时间（基于当前剩余时间、已获得的减时以及效率因子）
-// 此函数为简化版，直接扣除总减时（不再乘效率因子，因为效率因子已经在极限公式中体现）
-// 更好的实现：如果用户输入剩余时间，我们减去 helper 减时即可。
 export function calculateRemainingTime(
   currentRemaining: number,
   totalHelperReduce: number
@@ -120,7 +118,7 @@ export function formatTimeFromMinutes(minutesSinceMidnight: number): string {
   const totalMinutes = Math.round(minutesSinceMidnight);
   const hours = Math.floor(totalMinutes / 60) % 24;
   const mins = totalMinutes % 60;
-  let dayOffset = Math.floor(totalMinutes / 1440);
+  const dayOffset = Math.floor(totalMinutes / 1440);
   let prefix = '';
   if (dayOffset === 1) prefix = '明天 ';
   else if (dayOffset === 2) prefix = '后天 ';

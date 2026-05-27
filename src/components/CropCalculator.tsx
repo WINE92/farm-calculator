@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import LiveTimer from './LiveTimer'
 import WeekendStatus from './WeekendStatus'
-import StrategyPlanner from './StrategyPlanner'
+// 删除未使用的 StrategyPlanner 导入
 import CustomSelect from './CustomSelect'
 import CustomRange from './CustomRange'
 import { farmRules } from '@/lib/farmRules'
@@ -183,7 +183,7 @@ export default function CropCalculator() {
       setCropRemainingHours(newHours)
       setCropRemainingMins(newMins)
     }
-  }, [includeFirstWater, maxRemainingMinutes])
+  }, [includeFirstWater, maxRemainingMinutes, cropRemainingHours, cropRemainingMins])
 
   const remainingMinutes = Math.min(cropRemainingHours * 60 + cropRemainingMins, maxRemainingMinutes)
   const maxNextWaterMinutes = totalMaturityMinutes * 0.06
@@ -197,7 +197,7 @@ export default function CropCalculator() {
     } else if (val === 'twice') {
       alert('“只浇两次”策略的成熟时间请参考右侧“只浇两次水”卡片。如需精确模拟，请手动设置等待百分比和浇水次数。')
     } else {
-      setWaitMode(val as any)
+      setWaitMode(val as 'min' | 'best' | 'manual')
     }
   }
 
@@ -262,9 +262,9 @@ export default function CropCalculator() {
               {simulation.schedule.map((ev, idx) => {
                 const absTime = formatAbsoluteTime(ev.timeOffsetMinutes, currentHour, currentMinute)
                 let eventStr = ''
-                let waitStr = ev.waitMinutes !== undefined ? formatDurationShort(ev.waitMinutes / 60) : '-'
-                let reduceStr = ev.reductionMinutes !== undefined ? formatDurationShort(ev.reductionMinutes / 60) : '-'
-                let remainStr = ev.remainingMinutes !== undefined ? formatDurationShort(ev.remainingMinutes / 60) : '-'
+                const waitStr = ev.waitMinutes !== undefined ? formatDurationShort(ev.waitMinutes / 60) : '-'
+                const reduceStr = ev.reductionMinutes !== undefined ? formatDurationShort(ev.reductionMinutes / 60) : '-'
+                const remainStr = ev.remainingMinutes !== undefined ? formatDurationShort(ev.remainingMinutes / 60) : '-'
                 if (ev.type === 'friend') eventStr = `💖 好友浇水 ×${ev.friendCount}`
                 else if (ev.type === 'water') eventStr = ev.waitMinutes === 0 ? '🚀 种植浇水 (首次)' : '💧 浇水'
                 else if (ev.type === 'harvest') eventStr = '🍀 收获'
@@ -289,7 +289,7 @@ export default function CropCalculator() {
   const handleRemainingHoursChange = (val: number) => {
     if (isNaN(val)) val = 0
     val = Math.max(0, Math.min(val, maxRemainingHours))
-    let total = val * 60 + cropRemainingMins
+    const total = val * 60 + cropRemainingMins
     if (total > maxRemainingMinutes) {
       const newMins = Math.max(0, maxRemainingMinutes - val * 60)
       setCropRemainingMins(newMins)
@@ -302,7 +302,7 @@ export default function CropCalculator() {
   const handleRemainingMinsChange = (val: number) => {
     if (isNaN(val)) val = 0
     val = Math.min(59, Math.max(0, val))
-    let total = cropRemainingHours * 60 + val
+    const total = cropRemainingHours * 60 + val
     if (total > maxRemainingMinutes) {
       const newHours = Math.floor(maxRemainingMinutes / 60)
       const newMins = maxRemainingMinutes % 60
@@ -377,8 +377,7 @@ export default function CropCalculator() {
               </button>
               <button
                 onClick={() => setIncludeFirstWater(!includeFirstWater)}
-                className={`rounded-lg px-4 py-1.5 text-center whitespace-nowrap transition font-medium ${
-                  includeFirstWater
+                className={`rounded-lg px-4 py-1.5 text-center whitespace-nowrap transition font-medium ${includeFirstWater
                     ? 'bg-emerald-600 text-white hover:bg-emerald-500'
                     : 'bg-slate-600 text-slate-200 hover:bg-slate-500'
                 }`}
