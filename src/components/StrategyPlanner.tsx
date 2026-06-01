@@ -7,7 +7,6 @@ import CustomRange from './CustomRange'
 import { farmRules } from '@/lib/farmRules'
 import {
   calculateProfit,
-  calculateTwoWaterTime,
   getRuleByKey,
 } from '@/lib/farmCalculator'
 
