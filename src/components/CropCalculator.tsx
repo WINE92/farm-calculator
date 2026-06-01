@@ -492,7 +492,7 @@ export default function CropCalculator() {
                 <label className="text-sm text-slate-400 mb-1 block">每次等待时间(请选择浇水计划)</label>
                 <div className="flex gap-1">
                   <div className="flex-1">
-                    <CustomSelect value={plantWaitMode} onChange={(val) => setPlantWaitMode(val as any)} options={waitOptions} className="w-full" />
+                    <CustomSelect value={plantWaitMode} onChange={(val: string) => setPlantWaitMode(val as 'min' | 'best' | 'manual')} options={waitOptions} className="w-full" />
                   </div>
                   {plantWaitMode === 'manual' && (
                     <div className="flex items-center gap-1 w-20">

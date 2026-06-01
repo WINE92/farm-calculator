@@ -325,12 +325,14 @@ export default function CropCalculator() {
   const [plantManualPercent, setPlantManualPercent] = useState(15)
 
   // 商人收益
-  const [selectedCropId, setSelectedCropId] = useState('xuri')
+  const [selectedCropId] = useState('xuri')
   const [amount, setAmount] = useState(1920)
   const [stallLevel, setStallLevel] = useState(40)
   const [merchantMultiplier, setMerchantMultiplier] = useState(2)
   const [baijiaBonus, setBaijiaBonus] = useState(true)
   const [proficiencyLevel, setProficiencyLevel] = useState(10)
+
+  const ruleOptions = farmRules.map(rule => ({ value: rule.key, label: rule.name }))
 
   // 实时计算
   const realRule = useMemo(() => getRuleByKey(realCropKey)!, [realCropKey])
@@ -380,9 +382,6 @@ export default function CropCalculator() {
     baijiaBonus,
     proficiencyLevel,
   })
-
-  const ruleOptions = farmRules.map(rule => ({ value: rule.key, label: rule.name }))
-  const cropOptions = cropPrices.map(crop => ({ value: crop.id, label: crop.name }))
 
   // 时间轴渲染函数（修改了最大高度）
   const renderPlantTimeline = () => (
@@ -485,7 +484,7 @@ export default function CropCalculator() {
                 <label className="text-sm text-slate-400 mb-1 block">每次等待时间</label>
                 <div className="flex gap-1">
                   <div className="flex-1">
-                    <CustomSelect value={plantWaitMode} onChange={(val) => setPlantWaitMode(val as any)} options={waitOptions} className="w-full" />
+                    <CustomSelect value={plantWaitMode} onChange={(val: string) => setPlantWaitMode(val as 'min' | 'best' | 'manual')} options={waitOptions} className="w-full" />
                   </div>
                   {plantWaitMode === 'manual' && (
                     <div className="flex items-center gap-1 w-20">
