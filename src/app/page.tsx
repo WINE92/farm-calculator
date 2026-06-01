@@ -11,7 +11,7 @@ export default function HomePage() {
             </div>
 
             <div className="text-sm text-slate-400">
-              种植收益计算器 / 攻略平台
+              种植收益计算器 / 便捷平台
             </div>
           </div>
 
@@ -53,20 +53,23 @@ export default function HomePage() {
         <div className="relative mx-auto max-w-7xl px-6 py-28">
           <div className="max-w-4xl">
             <div className="mb-6 inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-400">
-              实时计算 · 双倍周规划 · 商人收益
+              实时计算 · 双倍周种植规划 · 商人收益
             </div>
 
             <h1 className="mb-8 text-6xl font-black leading-tight">
               王者荣耀世界
               <br />
-              专业种菜工具站
+              <p className="max-w-3xl text-xl leading-tight text-slate-400">
+              居所种植时间收益便捷查询工具
+              </p>
             </h1>
 
             <p className="max-w-3xl text-xl leading-9 text-slate-400">
-              实时计算浇水时间、成熟收益、双倍周路线、
-              商人售价、最佳种植方案。
+              实时计算浇水时间、双倍周路线、居所浇水收益细则
               <br />
-              面向中国大陆玩家打造的在线协作种植平台。
+              商人售价、最佳种植方案
+              <br /> 
+              Always free to use by WINE
             </p>
 
             <div className="mt-10 flex flex-wrap gap-4">
