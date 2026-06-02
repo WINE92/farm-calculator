@@ -1,8 +1,11 @@
 import CropCalculator from '@/components/CropCalculator'
+import MobileWarning from '@/components/MobileWarning'
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-[#0b1020] text-white">
+    <main className="bg-[#0b1020] text-white">
+      <MobileWarning />
+      <header className="sticky top-0 z-50 border-b border-slate-800 bg-[#0b1020]/90 backdrop-blur"></header>
       <header className="sticky top-0 z-50 border-b border-slate-800 bg-[#0b1020]/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
           <div>

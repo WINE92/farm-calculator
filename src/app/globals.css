@@ -73,3 +73,13 @@ html {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #10b981;
 }
+
+@media (max-width: 768px) {
+  body {
+    min-width: 1200px; /* 强制保持桌面宽度，配合缩放 */
+    overflow-x: auto;  /* 允许横向滚动 */
+  }
+  html {
+    font-size: 12px;
+  }
+}
