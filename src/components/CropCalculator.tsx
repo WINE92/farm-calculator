@@ -121,72 +121,136 @@ interface RealEvent {
 function simulateRealTime(
   totalMaturityMinutes: number,
   remainingMinutes: number,
-  nextWaterRemainingMinutes: number,
+  mode: 'nextWater' | 'nextReduce',
+  inputHours: number,
+  inputMins: number,
   waitMinutes: number,
   friendCount: number
 ) {
-  const minWait = totalMaturityMinutes * 0.06
-  const maxWait = totalMaturityMinutes * 0.24
-  const effectiveWait = Math.min(Math.max(waitMinutes, minWait), maxWait)
-  const maxReduction = totalMaturityMinutes * 0.07
-  const reductionPerWait = (w: number) => Math.min(w * (7 / 24), maxReduction)
+  // 转换为小时，便于计算
+  const X = totalMaturityMinutes / 60;
+  let remaining = remainingMinutes / 60;
+  const minWait = X * 0.06;
+  const maxWait = X * 0.24;
+  const effectiveWait = Math.min(Math.max(waitMinutes / 60, minWait), maxWait);
+  const maxReduction = X * 0.07;
+  const reductionPerWait = (w: number) => Math.min(w * 7 / 24, maxReduction);
 
-  let remaining = remainingMinutes
-  let currentTime = 0
-  const events: RealEvent[] = []
+  let currentTime = 0;          // 从当前时刻起的偏移（小时）
+  const events: RealEvent[] = [];
 
-  const friendTotal = Math.min(friendCount, 4) * totalMaturityMinutes * 0.025
-  if (friendTotal > 0) {
-    remaining = Math.max(0, remaining - friendTotal)
-    events.push({ type: 'friend', timeOffsetMinutes: 0, reductionMinutes: friendTotal, remainingMinutes: remaining, friendCount: Math.min(friendCount, 4) })
+  // ----- 1. 好友浇水（立即生效）-----
+  const friendTimes = Math.min(friendCount, 4);
+  const friendReductionHours = X * 0.025 * friendTimes;
+  if (friendReductionHours > 0) {
+    remaining = Math.max(0, remaining - friendReductionHours);
+    events.push({
+      type: 'friend',
+      timeOffsetMinutes: 0,
+      reductionMinutes: friendReductionHours * 60,
+      remainingMinutes: remaining * 60,
+      friendCount: friendTimes
+    });
+    if (remaining <= 0.001) {
+      events.push({ type: 'harvest', timeOffsetMinutes: 0, remainingMinutes: 0 });
+      return { events, harvestTimeOffsetMinutes: 0, totalWaterings: 0 };
+    }
   }
 
-  let firstWait = nextWaterRemainingMinutes > 0 ? nextWaterRemainingMinutes : effectiveWait
-  firstWait = Math.min(firstWait, remaining)
+  // ----- 2. 根据模式计算“已经等待的时间” alreadyWaited（距离上一次浇水过去多久）-----
+  let alreadyWaited = 0;
+  if (mode === 'nextWater') {
+    // 用户输入的是“距离可以浇水还剩多少时间”
+    let remainingWait = inputHours + inputMins / 60;
+    if (remainingWait < 0) remainingWait = 0;
+    // 已经等待的时间 = 最小间隔 - 剩余等待时间
+    alreadyWaited = Math.max(0, minWait - remainingWait);
+  } else {
+    // 模式：当前浇水可减少时间（用户输入的是本次浇水预计减少的时间）
+    let reductionExpected = inputHours + inputMins / 60;
+    if (reductionExpected > 0) {
+      // 等待时间 = 减少时间 × 24/7
+      alreadyWaited = reductionExpected * 24 / 7;
+      if (alreadyWaited > maxWait) alreadyWaited = maxWait;
+    }
+  }
 
+  // ----- 3. 第一次浇水的等待时间（基于用户设定的等待策略）-----
+  let firstWait = effectiveWait - alreadyWaited;
+  if (firstWait < 0) firstWait = 0;
+  firstWait = Math.min(firstWait, remaining);   // 不能超过剩余成熟时间
+
+  // 最后一轮优化：如果剩余时间很少，调整等待时间使浇水后刚好成熟
+  const sp = effectiveWait + reductionPerWait(effectiveWait);
+  if (remaining <= sp) {
+    let optW = (24 / 31) * remaining;
+    if (optW * 7 / 24 > maxReduction) optW = remaining - maxReduction;
+    firstWait = Math.min(Math.max(optW, minWait), firstWait);
+  }
+
+  // 等待第一次浇水
   if (firstWait > 0) {
-    currentTime += firstWait
-    remaining -= firstWait
+    currentTime += firstWait;
+    remaining -= firstWait;
+    if (remaining <= 0.001) {
+      events.push({ type: 'harvest', timeOffsetMinutes: currentTime * 60, remainingMinutes: 0 });
+      return { events, harvestTimeOffsetMinutes: currentTime * 60, totalWaterings: 0 };
+    }
   }
 
-  if (remaining > 0) {
-    const reduction = reductionPerWait(effectiveWait)
-    remaining = Math.max(0, remaining - reduction)
-    events.push({ type: 'water', timeOffsetMinutes: currentTime, reductionMinutes: reduction, remainingMinutes: remaining, waitMinutes: firstWait })
-  }
+  // 第一次浇水实际减少的时间（基于总等待时间 = alreadyWaited + firstWait）
+  const totalWaitBeforeWater = alreadyWaited + firstWait;
+  let reduction = reductionPerWait(totalWaitBeforeWater);
+  if (reduction > remaining) reduction = remaining;
+  remaining -= reduction;
+  events.push({
+    type: 'water',
+    timeOffsetMinutes: currentTime * 60,
+    reductionMinutes: reduction * 60,
+    remainingMinutes: remaining * 60,
+    waitMinutes: totalWaitBeforeWater * 60
+  });
 
-  let wateringCount = events.filter(e => e.type === 'water').length
+  let wateringCount = events.filter(e => e.type === 'water').length;
 
+  // ----- 4. 后续浇水循环（与 HTML 逻辑完全一致）-----
   while (remaining > 0.001) {
-    const sp = effectiveWait + reductionPerWait(effectiveWait)
-    let w: number
+    const sp = effectiveWait + reductionPerWait(effectiveWait);
+    let w: number;
     if (remaining <= minWait) {
-      w = remaining
+      w = remaining;
     } else if (remaining <= sp) {
-      let opt = (24 / 31) * remaining
-      if (opt * (7 / 24) > maxReduction) opt = remaining - maxReduction
-      w = Math.min(Math.max(opt, minWait), effectiveWait)
+      let optW = (24 / 31) * remaining;
+      if (optW * 7 / 24 > maxReduction) optW = remaining - maxReduction;
+      w = Math.min(Math.max(optW, minWait), effectiveWait);
     } else {
-      w = effectiveWait
+      w = effectiveWait;
     }
-    const naturalPass = Math.min(w, remaining)
-    currentTime += naturalPass
-    remaining -= naturalPass
+    const naturalPass = Math.min(w, remaining);
+    currentTime += naturalPass;
+    remaining -= naturalPass;
     if (remaining <= 0.001) {
-      events.push({ type: 'harvest', timeOffsetMinutes: currentTime, remainingMinutes: 0 })
-      break
+      events.push({ type: 'harvest', timeOffsetMinutes: currentTime * 60, remainingMinutes: 0 });
+      break;
     }
-    const reduce = reductionPerWait(w)
-    remaining -= reduce
-    wateringCount++
-    events.push({ type: 'water', timeOffsetMinutes: currentTime, reductionMinutes: reduce, remainingMinutes: Math.max(0, remaining), waitMinutes: w })
+    const r = reductionPerWait(w);
+    remaining -= r;
+    wateringCount++;
+    events.push({
+      type: 'water',
+      timeOffsetMinutes: currentTime * 60,
+      reductionMinutes: r * 60,
+      remainingMinutes: Math.max(0, remaining) * 60,
+      waitMinutes: w * 60
+    });
     if (remaining <= 0.001) {
-      events.push({ type: 'harvest', timeOffsetMinutes: currentTime, remainingMinutes: 0 })
-      break
+      events.push({ type: 'harvest', timeOffsetMinutes: currentTime * 60, remainingMinutes: 0 });
+      break;
     }
   }
 
-  return { events, harvestTimeOffsetMinutes: events.find(e => e.type === 'harvest')?.timeOffsetMinutes ?? currentTime, totalWaterings: wateringCount }
+  const harvestTimeOffsetMinutes = events.find(e => e.type === 'harvest')?.timeOffsetMinutes ?? currentTime * 60;
+  return { events, harvestTimeOffsetMinutes, totalWaterings: wateringCount };
 }
 
 const waitOptions = [
@@ -312,7 +376,13 @@ export default function CropCalculator() {
   const [realFriendCount, setRealFriendCount] = useState(1)
   const [realWaitMode, setRealWaitMode] = useState<'min' | 'best' | 'manual'>('best')
   const [realManualPercent, setRealManualPercent] = useState(15)
-  const [nextWaterMinutes, setNextWaterMinutes] = useState(65)
+  // 模式与输入
+  const [realMode, setRealMode] = useState<'nextWater' | 'nextReduce'>('nextWater')
+  const [nextWaterHours, setNextWaterHours] = useState(0)
+  const [nextWaterMins, setNextWaterMins] = useState(0)
+  const [reduceHours, setReduceHours] = useState(0)
+  const [reduceMins, setReduceMins] = useState(0)
+
   const [currentHour, setCurrentHour] = useState(() => new Date().getHours())
   const [currentMinute, setCurrentMinute] = useState(() => new Date().getMinutes())
   const [remainingHours, setRemainingHours] = useState(15)
@@ -357,8 +427,18 @@ export default function CropCalculator() {
 
   const realTimeSimulation = useMemo(() => {
     if (remainingMinutes <= 0) return null
-    return simulateRealTime(totalMaturityMinutes, remainingMinutes, nextWaterMinutes, realWaitMinutes, realFriendCount)
-  }, [totalMaturityMinutes, remainingMinutes, nextWaterMinutes, realWaitMinutes, realFriendCount])
+    const inputHours = realMode === 'nextWater' ? nextWaterHours : reduceHours
+    const inputMins = realMode === 'nextWater' ? nextWaterMins : reduceMins
+    return simulateRealTime(
+      totalMaturityMinutes,
+      remainingMinutes,
+      realMode,
+      inputHours,
+      inputMins,
+      realWaitMinutes,
+      realFriendCount
+    )
+  }, [totalMaturityMinutes, remainingMinutes, realMode, nextWaterHours, nextWaterMins, reduceHours, reduceMins, realWaitMinutes, realFriendCount])
 
   // 种植日程表
   const plantRule = useMemo(() => getRuleByKey(plantCropKey)!, [plantCropKey])
@@ -384,7 +464,7 @@ export default function CropCalculator() {
   const ruleOptions = farmRules.map(rule => ({ value: rule.key, label: rule.name }))
   const cropOptions = cropPrices.map(crop => ({ value: crop.id, label: crop.name }))
 
-  // 时间轴渲染函数（修改了最大高度）
+  // 时间轴渲染函数
   const renderPlantTimeline = () => (
     <div className="mt-4 max-h-100 overflow-y-auto pr-2 custom-scrollbar">
       {plantSchedule.events.map((event, idx) => (
@@ -404,13 +484,7 @@ export default function CropCalculator() {
     )
   }
 
-  const handleNextWaterChange = (val: number) => {
-    if (isNaN(val)) val = 0
-    val = Math.min(totalMaturityMinutes * 0.06, Math.max(0, val))
-    setNextWaterMinutes(val)
-  }
-
-  // 浇水收益表格数据（根据文档）
+  // 浇水收益表格数据
   const wateringRules = [
     { crop: '5小时作物', firstReduce: '21分', friendWater: '7分30秒', friendMax: '30分', waterInterval: '18分', maxInterval: '1时12分', minReduce: '5分15秒' },
     { crop: '16小时作物', firstReduce: '1时7分12秒', friendWater: '24分', friendMax: '1时36分', waterInterval: '57分36秒', maxInterval: '3时50分24秒', minReduce: '16分48秒' },
@@ -451,18 +525,60 @@ export default function CropCalculator() {
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2">
-              <div><label className="text-sm text-slate-400 mb-1 block">当前时间(时/分)</label><div className="flex gap-1"><input type="number" value={currentHour} onChange={(e) => setCurrentHour(Math.min(23, Math.max(0, Number(e.target.value))))} className="w-1/2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-center" placeholder="时" /><span className="text-slate-500">:</span><input type="number" value={currentMinute} onChange={(e) => setCurrentMinute(Math.min(59, Math.max(0, Number(e.target.value))))} className="w-1/2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-center" placeholder="分" /></div></div>
-              <div><label className="text-sm text-slate-400 mb-1 block">距离作物成熟剩余(时/分)</label><div className="flex gap-1"><input type="number" value={remainingHours} onChange={(e) => setRemainingHours(Math.max(0, Math.min(Number(e.target.value), Math.floor(maxRemainingMinutes / 60))))} className="w-1/2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-center" placeholder="时" /><span className="self-center text-slate-500">:</span><input type="number" value={remainingMins} onChange={(e) => setRemainingMins(Math.min(59, Math.max(0, Number(e.target.value))))} className="w-1/2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-center" placeholder="分" /></div></div>
-              <div><label className="text-sm text-slate-400 mb-1 block">距离下次浇水剩余(分)</label><input type="number" value={nextWaterMinutes} onChange={(e) => handleNextWaterChange(Number(e.target.value))} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-2" /></div>
+              <div>
+                <label className="text-sm py-0.5 text-slate-400 mb-1 block">当前时间(时/分)</label>
+                <div className="flex gap-1">
+                  <input type="number" value={currentHour} onChange={(e) => setCurrentHour(Math.min(23, Math.max(0, Number(e.target.value))))} className="w-1/2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-center" placeholder="时" />
+                  <span className="text-slate-500">:</span>
+                  <input type="number" value={currentMinute} onChange={(e) => setCurrentMinute(Math.min(59, Math.max(0, Number(e.target.value))))} className="w-1/2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-center" placeholder="分" />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm py-0.5 text-slate-400 mb-1 block">距离作物成熟剩余(时/分)</label>
+                <div className="flex gap-1">
+                  <input type="number" value={remainingHours} onChange={(e) => setRemainingHours(Math.max(0, Math.min(Number(e.target.value), Math.floor(maxRemainingMinutes / 60))))} className="w-1/2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-center" placeholder="时" />
+                  <span className="self-center text-slate-500">:</span>
+                  <input type="number" value={remainingMins} onChange={(e) => setRemainingMins(Math.min(59, Math.max(0, Number(e.target.value))))} className="w-1/2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-center" placeholder="分" />
+                </div>
+              </div>
+              <div>
+                <div className="flex gap-2 mb-1">
+                  <button
+                    onClick={() => setRealMode('nextWater')}
+                    className={`flex-1 text-xs py-1 px-1 rounded ${realMode === 'nextWater' ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-300'}`}
+                  >
+                    下次浇水剩余
+                  </button>
+                  <button
+                    onClick={() => setRealMode('nextReduce')}
+                    className={`flex-1 text-xs py-1 px-1 rounded ${realMode === 'nextReduce' ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-300'}`}
+                  >
+                    当前浇水减少
+                  </button>
+                </div>
+                {realMode === 'nextWater' ? (
+                  <div className="flex gap-1">
+                    <input type="number" value={nextWaterHours} onChange={(e) => setNextWaterHours(Math.max(0, Number(e.target.value)))} className="w-1/2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-center" placeholder="时" />
+                    <span className="text-slate-500">:</span>
+                    <input type="number" value={nextWaterMins} onChange={(e) => setNextWaterMins(Math.min(59, Math.max(0, Number(e.target.value))))} className="w-1/2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-center" placeholder="分" />
+                  </div>
+                ) : (
+                  <div className="flex gap-1">
+                    <input type="number" value={reduceHours} onChange={(e) => setReduceHours(Math.max(0, Number(e.target.value)))} className="w-1/2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-center" placeholder="时" />
+                    <span className="text-slate-500">:</span>
+                    <input type="number" value={reduceMins} onChange={(e) => setReduceMins(Math.min(59, Math.max(0, Number(e.target.value))))} className="w-1/2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-center" placeholder="分" />
+                  </div>
+                )}
+              </div>
             </div>
-             {/* 按钮行：添加说明文字 */}
-             <div className="flex items-start gap-2">
+            {/* 按钮行：添加说明文字 */}
+            <div className="flex items-start gap-2">
               <button onClick={() => { const now = new Date(); setCurrentHour(now.getHours()); setCurrentMinute(now.getMinutes()); }} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-500 transition">获取当前时间</button>
-               <div className="text-xs text-slate-400 space-y-0.5">
+              <div className="text-xs text-slate-400 space-y-0.5">
                 <div>* 该模块计算默认不包含首次浇水7%  需要计算完整周期请使用右侧种植日程表</div>
                 <div>* 已自动获取当前时间  左侧按钮点击可重新获取(如不准确请手动调整)</div>
               </div>
-             </div>
+            </div>
             {realTimeSimulation && (
               <div className="grid grid-cols-2 gap-2 mt-2">
                 <div className="rounded-xl bg-slate-950 p-2 text-center"><div className="text-xs text-slate-400">预计收获</div><div className="text-sm font-bold text-emerald-400">{formatAbsoluteTime(realTimeSimulation.harvestTimeOffsetMinutes, currentHour, currentMinute)}</div></div>
@@ -474,7 +590,7 @@ export default function CropCalculator() {
           </div>
         </div>
 
-        {/* 右侧：种植日程表 */}
+        {/* 右侧：种植日程表（保持不变） */}
         <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-5">
           <h2 className="text-3xl font-black text-emerald-400 mb-1">🌱 种植日程表</h2>
           <p className="text-xs text-slate-400 mb-4">作物从零开始种植，完整周期计算并展示，规划不同作物类型(基础时间)时间对应的种植路径。</p>
