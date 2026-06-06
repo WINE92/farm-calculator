@@ -161,13 +161,12 @@ function simulateRealTime(
   let alreadyWaited = 0;
   if (mode === 'nextWater') {
     // 用户输入的是“距离可以浇水还剩多少时间”
-    let remainingWait = inputHours + inputMins / 60;
-    if (remainingWait < 0) remainingWait = 0;
-    // 已经等待的时间 = 最小间隔 - 剩余等待时间
-    alreadyWaited = Math.max(0, minWait - remainingWait);
+    const remainingWait = inputHours + inputMins / 60;
+    // 已经等待的时间 = 最小间隔 - 剩余等待时间（不会小于0）
+    alreadyWaited = Math.max(0, minWait - Math.max(remainingWait, 0));
   } else {
     // 模式：当前浇水可减少时间（用户输入的是本次浇水预计减少的时间）
-    let reductionExpected = inputHours + inputMins / 60;
+    const reductionExpected = inputHours + inputMins / 60;
     if (reductionExpected > 0) {
       // 等待时间 = 减少时间 × 24/7
       alreadyWaited = reductionExpected * 24 / 7;
