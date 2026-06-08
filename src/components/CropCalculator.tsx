@@ -14,7 +14,7 @@ const cropPrices = [
   { id: 'yanxia', name: '炎霞辣椒', price: 50 },
   { id: 'canjin', name: '灿金云棉', price: 60 },
   { id: 'yezi', name: '曳紫云棉', price: 80 },
-  { id: 'xuri', name: '旭日辣椒', price: 96.95 },
+  { id: 'xuri', name: '旭日辣椒', price: 97 },
   { id: 'yansha', name: '胭纱云棉', price: 123 },
 ]
 
