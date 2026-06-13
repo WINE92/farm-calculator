@@ -49,6 +49,10 @@ interface PlantEvent {
   friendCount?: number
 }
 
+type BaseWaitMode = 'min' | 'best' | 'manual'
+type RealWaitMode = 'fastest' | BaseWaitMode
+type PlantWaitMode = BaseWaitMode | 'two'
+
 function simulatePlantSchedule(
   totalMaturityHours: number,
   waitHours: number,
@@ -107,6 +111,45 @@ function simulatePlantSchedule(
   }
 
   return { events, harvestTimeHours: events.find(e => e.type === 'harvest')?.timeOffsetHours ?? currentTime, totalWaterings: wateringCount }
+}
+
+function simulateTwoWaterPlantSchedule(
+  totalMaturityHours: number,
+  friendCount: number
+) {
+  const maxReduction = totalMaturityHours * 0.07
+
+  let remaining = totalMaturityHours
+  let currentTime = 0
+  const events: PlantEvent[] = []
+
+  events.push({ type: 'plant', timeOffsetHours: 0, remainingHours: remaining })
+
+  const friendTotal = Math.min(friendCount, 4) * totalMaturityHours * 0.025
+  if (friendTotal > 0) {
+    remaining = Math.max(0, remaining - friendTotal)
+    events.push({ type: 'friend', timeOffsetHours: 0, reductionHours: friendTotal, remainingHours: remaining, friendCount: Math.min(friendCount, 4) })
+  }
+
+  const firstReduce = Math.min(maxReduction, remaining)
+  remaining = Math.max(0, remaining - firstReduce)
+  events.push({ type: 'water', timeOffsetHours: 0, reductionHours: firstReduce, remainingHours: remaining, waitHours: 0 })
+
+  if (remaining <= 0.001) {
+    events.push({ type: 'harvest', timeOffsetHours: currentTime, remainingHours: 0 })
+    return { events, harvestTimeHours: currentTime, totalWaterings: 1 }
+  }
+
+  const waitHours = Math.max(0, remaining - maxReduction)
+  currentTime += waitHours
+  remaining = Math.max(0, remaining - waitHours)
+
+  const finalReduce = Math.min(maxReduction, remaining)
+  remaining = Math.max(0, remaining - finalReduce)
+  events.push({ type: 'water', timeOffsetHours: currentTime, reductionHours: finalReduce, remainingHours: remaining, waitHours })
+  events.push({ type: 'harvest', timeOffsetHours: currentTime, remainingHours: 0 })
+
+  return { events, harvestTimeHours: currentTime, totalWaterings: 2 }
 }
 
 // ---------- 实时浇水（当前状态，不含首次浇水）----------
@@ -241,13 +284,219 @@ function simulateRealTime(
   return { events, harvestTimeOffsetMinutes, totalWaterings: wateringCount };
 }
 
+function getFastestWaitPlan(
+  remaining: number,
+  minWait: number,
+  maxWait: number
+) {
+  const waterEfficiency = 31 / 24
+  const targetWaitTotal = remaining / waterEfficiency
+  const maxCycles = Math.ceil(remaining / minWait) + 1
+  let bestTotalWait = remaining
+  let bestWaits: number[] = []
+
+  for (let count = 1; count <= maxCycles; count++) {
+    const minTotal = count * minWait
+    const maxTotal = count * maxWait
+    if (targetWaitTotal > maxTotal + 0.001) continue
+
+    const totalWait = Math.max(targetWaitTotal, minTotal)
+    if (totalWait > maxTotal + 0.001) continue
+    if (totalWait >= bestTotalWait - 0.001) continue
+
+    const waits = Array(count).fill(minWait)
+    let extra = totalWait - minTotal
+    for (let i = 0; i < waits.length && extra > 0.001; i++) {
+      const add = Math.min(maxWait - minWait, extra)
+      waits[i] += add
+      extra -= add
+    }
+
+    bestTotalWait = totalWait
+    bestWaits = waits
+  }
+
+  return bestWaits
+}
+
+function appendFastestWaitPlan(
+  events: RealEvent[],
+  remaining: number,
+  currentTime: number,
+  minWait: number,
+  maxWait: number,
+  reductionPerWait: (wait: number) => number
+) {
+  let wateringCount = 0
+  const waits = getFastestWaitPlan(remaining, minWait, maxWait)
+
+  if (waits.length === 0) {
+    currentTime += remaining
+    events.push({ type: 'harvest', timeOffsetMinutes: currentTime * 60, remainingMinutes: 0 })
+    return { remaining: 0, currentTime, wateringCount }
+  }
+
+  for (const wait of waits) {
+    const naturalPass = Math.min(wait, remaining)
+    currentTime += naturalPass
+    remaining -= naturalPass
+
+    if (remaining <= 0.001) {
+      events.push({ type: 'harvest', timeOffsetMinutes: currentTime * 60, remainingMinutes: 0 })
+      return { remaining: 0, currentTime, wateringCount }
+    }
+
+    const reduction = Math.min(reductionPerWait(wait), remaining)
+    remaining -= reduction
+    wateringCount++
+    events.push({
+      type: 'water',
+      timeOffsetMinutes: currentTime * 60,
+      reductionMinutes: reduction * 60,
+      remainingMinutes: Math.max(0, remaining) * 60,
+      waitFromPrevMinutes: wait * 60
+    })
+
+    if (remaining <= 0.001) {
+      events.push({ type: 'harvest', timeOffsetMinutes: currentTime * 60, remainingMinutes: 0 })
+      return { remaining: 0, currentTime, wateringCount }
+    }
+  }
+
+  currentTime += remaining
+  events.push({ type: 'harvest', timeOffsetMinutes: currentTime * 60, remainingMinutes: 0 })
+  return { remaining: 0, currentTime, wateringCount }
+}
+
+function simulateFastestRealTime(
+  totalMaturityMinutes: number,
+  remainingMinutes: number,
+  mode: 'nextWater' | 'nextReduce',
+  inputHours: number,
+  inputMins: number,
+  friendCount: number
+) {
+  const totalMaturityHours = totalMaturityMinutes / 60
+  let remaining = remainingMinutes / 60
+  const minWait = totalMaturityHours * 0.06
+  const maxWait = totalMaturityHours * 0.24
+  const maxReduction = totalMaturityHours * 0.07
+  const reductionPerWait = (wait: number) => Math.min(wait * 7 / 24, maxReduction)
+
+  let currentTime = 0
+  const events: RealEvent[] = []
+
+  const friendTimes = Math.min(friendCount, 4)
+  const friendReductionHours = totalMaturityHours * 0.025 * friendTimes
+  if (friendReductionHours > 0) {
+    remaining = Math.max(0, remaining - friendReductionHours)
+    events.push({
+      type: 'friend',
+      timeOffsetMinutes: 0,
+      reductionMinutes: friendReductionHours * 60,
+      remainingMinutes: remaining * 60,
+      friendCount: friendTimes
+    })
+    if (remaining <= 0.001) {
+      events.push({ type: 'harvest', timeOffsetMinutes: 0, remainingMinutes: 0 })
+      return { events, harvestTimeOffsetMinutes: 0, totalWaterings: 0 }
+    }
+  }
+
+  let alreadyWaited = 0
+  if (mode === 'nextWater') {
+    const remainingWait = inputHours + inputMins / 60
+    alreadyWaited = Math.max(0, minWait - Math.max(remainingWait, 0))
+  } else {
+    const reductionExpected = inputHours + inputMins / 60
+    if (reductionExpected > 0) {
+      alreadyWaited = Math.min(reductionExpected * 24 / 7, maxWait)
+    }
+  }
+
+  const firstCandidates: number[] = []
+  if (alreadyWaited >= maxWait) {
+    firstCandidates.push(maxWait)
+  } else {
+    const firstTotalWait = Math.max(minWait, alreadyWaited)
+    for (let wait = firstTotalWait; wait <= maxWait + 0.001; wait += 1 / 60) {
+      firstCandidates.push(Math.min(wait, maxWait))
+    }
+    if (!firstCandidates.includes(maxWait)) firstCandidates.push(maxWait)
+  }
+
+  let bestFirstWait: number | null = null
+  let bestTotalTime = remaining
+  let bestWaterings = 0
+
+  for (const totalWaitBeforeFirstWater of firstCandidates) {
+    const waitFromNow = Math.max(0, totalWaitBeforeFirstWater - alreadyWaited)
+    if (waitFromNow >= remaining) continue
+
+    const afterNatural = remaining - waitFromNow
+    const afterWater = Math.max(0, afterNatural - reductionPerWait(totalWaitBeforeFirstWater))
+    const followUpWaits = getFastestWaitPlan(afterWater, minWait, maxWait)
+    const followUpTime = followUpWaits.reduce((sum, wait) => sum + wait, 0)
+    const totalTime = waitFromNow + (followUpWaits.length > 0 ? followUpTime : afterWater)
+    const waterings = 1 + followUpWaits.length
+
+    if (totalTime < bestTotalTime - 0.001 || (Math.abs(totalTime - bestTotalTime) <= 0.001 && waterings < bestWaterings)) {
+      bestTotalTime = totalTime
+      bestFirstWait = totalWaitBeforeFirstWater
+      bestWaterings = waterings
+    }
+  }
+
+  if (bestFirstWait === null) {
+    currentTime += remaining
+    events.push({ type: 'harvest', timeOffsetMinutes: currentTime * 60, remainingMinutes: 0 })
+    return { events, harvestTimeOffsetMinutes: currentTime * 60, totalWaterings: 0 }
+  }
+
+  const firstWaitFromNow = Math.max(0, bestFirstWait - alreadyWaited)
+  currentTime += firstWaitFromNow
+  remaining -= firstWaitFromNow
+
+  if (remaining <= 0.001) {
+    events.push({ type: 'harvest', timeOffsetMinutes: currentTime * 60, remainingMinutes: 0 })
+    return { events, harvestTimeOffsetMinutes: currentTime * 60, totalWaterings: 0 }
+  }
+
+  const firstReduction = Math.min(reductionPerWait(bestFirstWait), remaining)
+  remaining -= firstReduction
+  events.push({
+    type: 'water',
+    timeOffsetMinutes: currentTime * 60,
+    reductionMinutes: firstReduction * 60,
+    remainingMinutes: Math.max(0, remaining) * 60,
+    waitFromPrevMinutes: firstWaitFromNow * 60
+  })
+
+  if (remaining <= 0.001) {
+    events.push({ type: 'harvest', timeOffsetMinutes: currentTime * 60, remainingMinutes: 0 })
+    return { events, harvestTimeOffsetMinutes: currentTime * 60, totalWaterings: 1 }
+  }
+
+  const result = appendFastestWaitPlan(events, remaining, currentTime, minWait, maxWait, reductionPerWait)
+  const harvestTimeOffsetMinutes = events.find(event => event.type === 'harvest')?.timeOffsetMinutes ?? result.currentTime * 60
+  return { events, harvestTimeOffsetMinutes, totalWaterings: 1 + result.wateringCount }
+}
+
 const waitOptions = [
+  { value: 'fastest', label: '极限最快成熟 (动态计算)' },
   { value: 'min', label: '最短等待 (6%)' },
   { value: 'best', label: '最佳等待 (24%)' },
   { value: 'manual', label: '手动设置' },
 ]
 
 // ========== 紧凑型时间轴组件 ==========
+const plantWaitOptions = [
+  { value: 'min', label: '最短等待 (6%)' },
+  { value: 'best', label: '最佳等待 (24%)' },
+  { value: 'two', label: '只浇两次 (开始和结束)' },
+  { value: 'manual', label: '手动设置' },
+]
+
 function TimelineCardPlant({ event, index, totalEvents }: { event: PlantEvent; index: number; totalEvents: number }) {
   const isLast = index === totalEvents - 1
   let dotColor = "bg-emerald-500"
@@ -365,7 +614,7 @@ function TimelineCardReal({ event, index, totalEvents, currentHour, currentMinut
 export default function CropCalculator() {
   const [realCropKey, setRealCropKey] = useState('20h')
   const [realFriendCount, setRealFriendCount] = useState(1)
-  const [realWaitMode, setRealWaitMode] = useState<'min' | 'best' | 'manual'>('best')
+  const [realWaitMode, setRealWaitMode] = useState<RealWaitMode>('best')
   const [realManualPercent, setRealManualPercent] = useState(15)
   const [realMode, setRealMode] = useState<'nextWater' | 'nextReduce'>('nextWater')
   const [nextWaterHours, setNextWaterHours] = useState(0)
@@ -380,7 +629,7 @@ export default function CropCalculator() {
 
   const [plantCropKey, setPlantCropKey] = useState('28h')
   const [plantFriendCount, setPlantFriendCount] = useState(4)
-  const [plantWaitMode, setPlantWaitMode] = useState<'min' | 'best' | 'manual'>('min')
+  const [plantWaitMode, setPlantWaitMode] = useState<PlantWaitMode>('min')
   const [plantManualPercent, setPlantManualPercent] = useState(15)
 
   const [selectedCropId, setSelectedCropId] = useState('xuri')
@@ -416,6 +665,16 @@ export default function CropCalculator() {
     if (remainingMinutes <= 0) return null
     const inputHours = realMode === 'nextWater' ? nextWaterHours : reduceHours
     const inputMins = realMode === 'nextWater' ? nextWaterMins : reduceMins
+    if (realWaitMode === 'fastest') {
+      return simulateFastestRealTime(
+        totalMaturityMinutes,
+        remainingMinutes,
+        realMode,
+        inputHours,
+        inputMins,
+        realFriendCount
+      )
+    }
     return simulateRealTime(
       totalMaturityMinutes,
       remainingMinutes,
@@ -425,7 +684,7 @@ export default function CropCalculator() {
       realWaitMinutes,
       realFriendCount
     )
-  }, [totalMaturityMinutes, remainingMinutes, realMode, nextWaterHours, nextWaterMins, reduceHours, reduceMins, realWaitMinutes, realFriendCount])
+  }, [totalMaturityMinutes, remainingMinutes, realMode, nextWaterHours, nextWaterMins, reduceHours, reduceMins, realWaitMinutes, realFriendCount, realWaitMode])
 
   const plantRule = useMemo(() => getRuleByKey(plantCropKey)!, [plantCropKey])
   const totalMaturityHours = plantRule.totalMinutes / 60
@@ -435,7 +694,12 @@ export default function CropCalculator() {
     else if (plantWaitMode === 'manual') percent = Math.min(Math.max(plantManualPercent, 6), 24) / 100
     return totalMaturityHours * percent
   }, [plantWaitMode, plantManualPercent, totalMaturityHours])
-  const plantSchedule = useMemo(() => simulatePlantSchedule(totalMaturityHours, plantWaitHours, plantFriendCount), [totalMaturityHours, plantWaitHours, plantFriendCount])
+  const plantSchedule = useMemo(() => {
+    if (plantWaitMode === 'two') {
+      return simulateTwoWaterPlantSchedule(totalMaturityHours, plantFriendCount)
+    }
+    return simulatePlantSchedule(totalMaturityHours, plantWaitHours, plantFriendCount)
+  }, [totalMaturityHours, plantWaitHours, plantFriendCount, plantWaitMode])
 
   const profit = calculateProfit({
     basePrice: cropPrices.find(c => c.id === selectedCropId)!.price,
@@ -538,14 +802,14 @@ export default function CropCalculator() {
                   <CustomSelect value={realCropKey} onChange={setRealCropKey} options={ruleOptions} className="w-full" />
                 </div>
                 <div className="w-[20%]">
-                  <label className="text-sm text-slate-400 mb-1 block">可协助浇水次数</label>
+                  <label className="text-sm text-slate-400 mb-1 block">还能协助浇水</label>
                   <input type="number" value={realFriendCount} onChange={(e) => setRealFriendCount(Math.min(4, Math.max(0, Number(e.target.value))))} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-2" />
                 </div>
                 <div className="w-[50%]">
                   <label className="text-sm text-slate-400 mb-1 block">每次等待时间(请选择浇水计划)</label>
                   <div className="flex gap-1">
                     <div className="flex-1">
-                      <CustomSelect value={realWaitMode} onChange={(val: string) => setRealWaitMode(val as 'min' | 'best' | 'manual')} options={waitOptions} className="w-full" />
+                      <CustomSelect value={realWaitMode} onChange={(val: string) => setRealWaitMode(val as RealWaitMode)} options={waitOptions} className="w-full" />
                     </div>
                     {realWaitMode === 'manual' && (
                       <div className="flex items-center gap-1 w-20">
@@ -711,7 +975,7 @@ export default function CropCalculator() {
                   <label className="text-sm text-slate-400 mb-1 block">每次等待时间(请选择浇水计划)</label>
                   <div className="flex gap-1">
                     <div className="flex-1">
-                      <CustomSelect value={plantWaitMode} onChange={(val: string) => setPlantWaitMode(val as 'min' | 'best' | 'manual')} options={waitOptions} className="w-full" />
+                      <CustomSelect value={plantWaitMode} onChange={(val: string) => setPlantWaitMode(val as PlantWaitMode)} options={plantWaitOptions} className="w-full" />
                     </div>
                     {plantWaitMode === 'manual' && (
                       <div className="flex items-center gap-1 w-20">
